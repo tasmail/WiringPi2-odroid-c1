@@ -1796,7 +1796,7 @@ SwigPyObject_own(PyObject *v, PyObject *args)
 static PyMethodDef
 swigobject_methods[] = {
   {(char *)"disown",  (PyCFunction)SwigPyObject_disown,  METH_NOARGS,  (char *)"releases ownership of the pointer"},
-  {(char *)"acquire", (PyCFunction)SwigPyObject_acquire, METH_NOARGS,  (char *)"acquires ownership of the pointer"},
+  {(char *)"acquire", (PyCFunction)SwigPyObject_acquire, METH_NOARGS,  (char *)"aquires ownership of the pointer"},
   {(char *)"own",     (PyCFunction)SwigPyObject_own,     METH_VARARGS, (char *)"returns/sets ownership of the pointer"},
   {(char *)"append",  (PyCFunction)SwigPyObject_append,  METH_O,       (char *)"appends another 'this' object"},
   {(char *)"next",    (PyCFunction)SwigPyObject_next,    METH_NOARGS,  (char *)"returns the next 'this' object"},
@@ -2284,11 +2284,10 @@ SWIGRUNTIME int
 SWIG_Python_ConvertPtrAndOwn(PyObject *obj, void **ptr, swig_type_info *ty, int flags, int *own) {
   int res;
   SwigPyObject *sobj;
-  int implicit_conv = (flags & SWIG_POINTER_IMPLICIT_CONV) != 0;
 
   if (!obj)
     return SWIG_ERROR;
-  if (obj == Py_None && !implicit_conv) {
+  if (obj == Py_None) {
     if (ptr)
       *ptr = 0;
     return SWIG_OK;
@@ -2337,7 +2336,7 @@ SWIG_Python_ConvertPtrAndOwn(PyObject *obj, void **ptr, swig_type_info *ty, int 
     }
     res = SWIG_OK;
   } else {
-    if (implicit_conv) {
+    if (flags & SWIG_POINTER_IMPLICIT_CONV) {
       SwigPyClientData *data = ty ? (SwigPyClientData *) ty->clientdata : 0;
       if (data && !data->implicitconv) {
         PyObject *klass = data->klass;
@@ -2371,13 +2370,6 @@ SWIG_Python_ConvertPtrAndOwn(PyObject *obj, void **ptr, swig_type_info *ty, int 
           }
         }
       }
-    }
-    if (!SWIG_IsOK(res) && obj == Py_None) {
-      if (ptr)
-        *ptr = 0;
-      if (PyErr_Occurred())
-        PyErr_Clear();
-      res = SWIG_OK;
     }
   }
   return res;
@@ -2467,29 +2459,23 @@ SWIG_Python_NewShadowInstance(SwigPyClientData *data, PyObject *swig_this)
   } else {
 #if PY_VERSION_HEX >= 0x03000000
     inst = PyBaseObject_Type.tp_new((PyTypeObject*) data->newargs, Py_None, Py_None);
-    if (inst) {
-      PyObject_SetAttr(inst, SWIG_This(), swig_this);
-      Py_TYPE(inst)->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
-    }
+    PyObject_SetAttr(inst, SWIG_This(), swig_this);
+    Py_TYPE(inst)->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
 #else
     PyObject *dict = PyDict_New();
-    if (dict) {
-      PyDict_SetItem(dict, SWIG_This(), swig_this);
-      inst = PyInstance_NewRaw(data->newargs, dict);
-      Py_DECREF(dict);
-    }
+    PyDict_SetItem(dict, SWIG_This(), swig_this);
+    inst = PyInstance_NewRaw(data->newargs, dict);
+    Py_DECREF(dict);
 #endif
   }
   return inst;
 #else
 #if (PY_VERSION_HEX >= 0x02010000)
-  PyObject *inst = 0;
+  PyObject *inst;
   PyObject *dict = PyDict_New();
-  if (dict) {
-    PyDict_SetItem(dict, SWIG_This(), swig_this);
-    inst = PyInstance_NewRaw(data->newargs, dict);
-    Py_DECREF(dict);
-  }
+  PyDict_SetItem(dict, SWIG_This(), swig_this);
+  inst = PyInstance_NewRaw(data->newargs, dict);
+  Py_DECREF(dict);
   return (PyObject *) inst;
 #else
   PyInstanceObject *inst = PyObject_NEW(PyInstanceObject, &PyInstance_Type);
@@ -2596,10 +2582,12 @@ SWIG_Python_NewPointerObj(PyObject *self, void *ptr, swig_type_info *type, int f
   assert(!(flags & SWIG_BUILTIN_TP_INIT));
 
   robj = SwigPyObject_New(ptr, type, own);
-  if (robj && clientdata && !(flags & SWIG_POINTER_NOSHADOW)) {
+  if (clientdata && !(flags & SWIG_POINTER_NOSHADOW)) {
     PyObject *inst = SWIG_Python_NewShadowInstance(clientdata, robj);
-    Py_DECREF(robj);
-    robj = inst;
+    if (inst) {
+      Py_DECREF(robj);
+      robj = inst;
+    }
   }
   return robj;
 }
@@ -2878,7 +2866,7 @@ SWIG_Python_NonDynamicSetAttr(PyObject *obj, PyObject *name, PyObject *value) {
   PyObject *descr;
   PyObject *encoded_name;
   descrsetfunc f;
-  int res = -1;
+  int res;
 
 # ifdef Py_USING_UNICODE
   if (PyString_Check(name)) {
@@ -2901,6 +2889,7 @@ SWIG_Python_NonDynamicSetAttr(PyObject *obj, PyObject *name, PyObject *value) {
       goto done;
   }
 
+  res = -1;
   descr = _PyType_Lookup(tp, name);
   f = NULL;
   if (descr != NULL)

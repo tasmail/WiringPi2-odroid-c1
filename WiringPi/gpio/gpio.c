@@ -53,11 +53,16 @@ extern void doPins       (void) ;
 #  define	FALSE	(1==2)
 #endif
 
-#define	VERSION			"2.21"
+/*
+	2.31 : ODROID-C1/ODROID-C2 wiringPi support
+	2.33 : ODROID-C1/ODROID-C2 GPIO sysfs irq support
+*/
+#define	VERSION			"2.33"
 #define	PI_USB_POWER_CONTROL	38
 #define	I2CDETECT		"/usr/sbin/i2cdetect"
 
 int wpMode ;
+int piModel = PI_MODEL_UNKNOWN;
 
 char *usage = "Usage: gpio -v\n"
               "       gpio -h\n"
@@ -208,28 +213,114 @@ static void doLoad (int argc, char *argv [])
   else
     _doLoadUsage (argv) ;
 
-  if (!moduleLoaded (module1))
-  {
-    sprintf (cmd, "modprobe %s%s", module1, args1) ;
-    system (cmd) ;
+  if (piModel == PI_MODEL_ODROIDC  ||
+      piModel == PI_MODEL_ODROIDC2 ||
+      piModel == PI_MODEL_ODROIDXU_34)  {
+    if (strcasecmp (argv [2], "i2c") == 0)  {
+      if (piModel == PI_MODEL_ODROIDC || piModel == PI_MODEL_ODROIDC2)  {
+        module1 = "aml-i2c";
+        file1 = "/dev/i2c-1";
+        file2 = "/dev/i2c-2";
+
+        if (!moduleLoaded(module1))  {
+          sprintf (cmd, "PATH=/bin:/usr/bin:/sbin:/usr/local/bin modprobe %s", module1) ;
+          system (cmd) ;
+        }
+      }
+      else {
+        file1 = "/dev/i2c-4";	/* i2c smbus : 0x12c70000 */
+        file2 = "/dev/i2c-1";	/* hsi2c : 0x12cb0000 */
+      }
+
+      sleep (1) ;	// To let things get settled
+      changeOwner (argv [0], file1) ;
+      changeOwner (argv [0], file2) ;
+    }
+    else  {
+      if (piModel == PI_MODEL_ODROIDC2) {
+          fprintf (stderr, "ODROID-C2 : H/W SPI not support!\n") ;
+          return;
+      }
+      if (piModel == PI_MODEL_ODROIDC)  {
+        file1 = "/dev/spidev0.0";
+        module1 = "spidev";
+        module2 = "spicc";
+        if (!moduleLoaded(module1))  {
+          sprintf (cmd, "PATH=/bin:/usr/bin:/sbin:/usr/local/bin modprobe %s%s", module1, args1) ;
+          system (cmd) ;
+        }
+        if (!moduleLoaded(module2))  {
+          sprintf (cmd, "PATH=/bin:/usr/bin:/sbin:/usr/local/bin modprobe %s", module2) ;
+          system (cmd) ;
+        }
+        if (!moduleLoaded (module2))
+        {
+          fprintf (stderr, "%s: Unable to load %s\n", argv [0], module2) ;
+          exit (1) ;
+        }
+
+        sleep (1) ;	// To let things get settled
+        changeOwner (argv [0], file1) ;
+      }
+      else {
+        module1 = "spidev";
+        file1 = "/dev/spidev1.0";
+
+        if (!moduleLoaded (module1))
+        {
+          fprintf (stderr, "%s: Unable to load %s\n", argv [0], module1) ;
+          fprintf (stderr, "\nYou need modified dtb file for spidev.\n");
+          fprintf (stderr, "\nstep 1)\n");
+          fprintf (stderr, "  - install device-tree-compiler.\n");
+          fprintf (stderr, "    sudo apt-get install device-tree-compiler\n");
+          fprintf (stderr, "\nstep 2)\n");
+          fprintf (stderr, "  - modified dtb file.\n");
+          fprintf (stderr, "    sudo -s\n");
+          fprintf (stderr, "    fdtput -c /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev\n");
+          fprintf (stderr, "    fdtput -t s /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev compatible \"spidev\"\n");
+          fprintf (stderr, "    fdtput -t x /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev reg 0\n");
+          fprintf (stderr, "    fdtput -t i /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev spi-max-frequency 20000000\n");
+          fprintf (stderr, "    fdtput -c /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev/controller-data\n");
+          fprintf (stderr, "    fdtput -t x /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev/controller-data cs-gpio 0x44, 0x5, 0x0\n");
+          fprintf (stderr, "    fdtput -t x /media/boot/exynos5422-odroidxu3.dtb /spi@12d30000/spidev/controller-data samsung,spi-feedback-delay 0\n");
+          fprintf (stderr, "\nstep 3)\n");
+          fprintf (stderr, "  - reboot system.\n");
+          fprintf (stderr, "    sudo reboot\n");
+          fprintf (stderr, "\nstep 4)\n");
+          fprintf (stderr, "  - check your SPI node.\n");
+          fprintf (stderr, "    ls /dev/spidev1.0\n");
+          // fdtput
+          exit (1) ;
+        }
+
+        sleep (1) ;	// To let things get settled
+        changeOwner (argv [0], file1) ;
+      }
+    }
   }
+  else  {
+    if (!moduleLoaded (module1))
+    {
+      sprintf (cmd, "PATH=/bin:/usr/bin:/sbin:/usr/local/bin modprobe %s%s", module1, args1) ;
+      system (cmd) ;
+    }
 
-  if (!moduleLoaded (module2))
-  {
-    sprintf (cmd, "modprobe %s%s", module2, args2) ;
-    system (cmd) ;
+    if (!moduleLoaded (module2))
+    {
+      sprintf (cmd, "PATH=/bin:/usr/bin:/sbin:/usr/local/bin modprobe %s%s", module2, args2) ;
+      system (cmd) ;
+    }
+
+    if (!moduleLoaded (module2))
+    {
+      fprintf (stderr, "%s: Unable to load %s\n", argv [0], module2) ;
+      exit (1) ;
+    }
+    sleep (1) ;	// To let things get settled
+
+    changeOwner (argv [0], file1) ;
+    changeOwner (argv [0], file2) ;
   }
-
-  if (!moduleLoaded (module2))
-  {
-    fprintf (stderr, "%s: Unable to load %s\n", argv [0], module2) ;
-    exit (1) ;
-  }
-
-  sleep (1) ;	// To let things get settled
-
-  changeOwner (argv [0], file1) ;
-  changeOwner (argv [0], file2) ;
 }
 
 
@@ -277,8 +368,8 @@ static void doExports (int argc, char *argv [])
   char fName [128] ;
   char buf [16] ;
 
-  // ODROIDC GPIO Max 128
-  for (first = 0, i = 0 ; i < 128 ; ++i)	// Crude, but effective
+  // ODROIDC GPIO Max 128, ODROIDXU_34 GPIO Max 256
+  for (first = 0, i = 0 ; i < 256 ; ++i)	// Crude, but effective
   {
 
 // Try to read the direction
@@ -371,7 +462,9 @@ void doExport (int argc, char *argv [])
 
   mode = argv [3] ;
 
-  if ((fd = fopen ("/sys/class/gpio/export", "w")) == NULL)
+  sprintf (fName, "/sys/class/%s/export", "gpio");
+
+  if ((fd = fopen (fName, "w")) == NULL)
   {
     fprintf (stderr, "%s: Unable to open GPIO export interface: %s\n", argv [0], strerror (errno)) ;
     exit (1) ;
@@ -381,6 +474,7 @@ void doExport (int argc, char *argv [])
   fclose (fd) ;
 
   sprintf (fName, "/sys/class/gpio/gpio%d/direction", pin) ;
+
   if ((fd = fopen (fName, "w")) == NULL)
   {
     fprintf (stderr, "%s: Unable to open GPIO direction interface for pin %d: %s\n", argv [0], pin, strerror (errno)) ;
@@ -402,9 +496,11 @@ void doExport (int argc, char *argv [])
 // Change ownership so the current user can actually use it!
 
   sprintf (fName, "/sys/class/gpio/gpio%d/value", pin) ;
+
   changeOwner (argv [0], fName) ;
 
   sprintf (fName, "/sys/class/gpio/gpio%d/edge", pin) ;
+
   changeOwner (argv [0], fName) ;
 
 }
@@ -471,6 +567,9 @@ void doEdge (int argc, char *argv [])
   char *mode ;
   char fName [128] ;
 
+  // Reset irq gpio
+  doUnexport(3, argv);      // unexport argc == 3
+
   if (argc != 4)
   {
     fprintf (stderr, "Usage: %s edge pin mode\n", argv [0]) ;
@@ -482,16 +581,18 @@ void doEdge (int argc, char *argv [])
 
 // Export the pin and set direction to input
 
-  if ((fd = fopen ("/sys/class/gpio/export", "w")) == NULL)
+  sprintf (fName, "/sys/class/%s/export", "gpio");
+
+  if ((fd = fopen (fName, "w")) == NULL)
   {
     fprintf (stderr, "%s: Unable to open GPIO export interface: %s\n", argv [0], strerror (errno)) ;
     exit (1) ;
   }
-
   fprintf (fd, "%d\n", pin) ;
   fclose (fd) ;
 
-  sprintf (fName, "/sys/class/gpio/gpio%d/direction", pin) ;
+  sprintf (fName, "/sys/class/gpio/gpio%d/direction", pin);
+
   if ((fd = fopen (fName, "w")) == NULL)
   {
     fprintf (stderr, "%s: Unable to open GPIO direction interface for pin %d: %s\n", argv [0], pin, strerror (errno)) ;
@@ -501,7 +602,8 @@ void doEdge (int argc, char *argv [])
   fprintf (fd, "in\n") ;
   fclose (fd) ;
 
-  sprintf (fName, "/sys/class/gpio/gpio%d/edge", pin) ;
+  sprintf (fName, "/sys/class/gpio/gpio%d/edge", pin);
+
   if ((fd = fopen (fName, "w")) == NULL)
   {
     fprintf (stderr, "%s: Unable to open GPIO edge interface for pin %d: %s\n", argv [0], pin, strerror (errno)) ;
@@ -520,10 +622,12 @@ void doEdge (int argc, char *argv [])
 
 // Change ownership of the value and edge files, so the current user can actually use it!
 
-  sprintf (fName, "/sys/class/gpio/gpio%d/value", pin) ;
+  sprintf (fName, "/sys/class/gpio/gpio%d/value", pin);
+
   changeOwner (argv [0], fName) ;
 
-  sprintf (fName, "/sys/class/gpio/gpio%d/edge", pin) ;
+  sprintf (fName, "/sys/class/gpio/gpio%d/edge", pin);
+
   changeOwner (argv [0], fName) ;
 
   fclose (fd) ;
@@ -541,6 +645,7 @@ void doUnexport (int argc, char *argv [])
 {
   FILE *fd ;
   int pin ;
+  char fName [128] ;
 
   if (argc != 3)
   {
@@ -550,7 +655,9 @@ void doUnexport (int argc, char *argv [])
 
   pin = atoi (argv [2]) ;
 
-  if ((fd = fopen ("/sys/class/gpio/unexport", "w")) == NULL)
+  sprintf (fName, "/sys/class/%s/unexport", "gpio") ;
+
+  if ((fd = fopen (fName, "w")) == NULL)
   {
     fprintf (stderr, "%s: Unable to open GPIO export interface\n", argv [0]) ;
     exit (1) ;
@@ -574,8 +681,8 @@ void doUnexportall (char *progName)
   FILE *fd ;
   int pin ;
 
-  // ODROIDC GPIO Max 128
-  for (pin = 0 ; pin < 128 ; ++pin)
+  // ODROIDC GPIO Max 128, ODROIDXU_34 GPIO Max 256
+  for (pin = 0 ; pin < 256 ; ++pin)
   {
     if ((fd = fopen ("/sys/class/gpio/unexport", "w")) == NULL)
     {
@@ -630,7 +737,10 @@ static void doReset (char *progName)
 
   /**/ if ((model == PI_MODEL_A)  || (model == PI_MODEL_B))
     endPin = 16 ;
-  else if ((model == PI_MODEL_BP) || (model == PI_MODEL_ODROIDC))
+  else if ((model == PI_MODEL_BP)       ||
+           (model == PI_MODEL_ODROIDC)  ||
+           (model == PI_MODEL_ODROIDC2) ||
+           (model == PI_MODEL_ODROIDXU_34))
     endPin = 39 ;
   else if (model == PI_MODEL_CM)
   {
@@ -1182,6 +1292,9 @@ int main (int argc, char *argv [])
     return 0 ;
   }
 
+  piBoardId (&model, &rev, &mem, &maker, &overVolted) ;
+  piModel = model;
+
   if (strcmp (argv [1], "-v") == 0)
   {
     printf ("gpio version: %s\n", VERSION) ;
@@ -1189,14 +1302,15 @@ int main (int argc, char *argv [])
     printf ("This is free software with ABSOLUTELY NO WARRANTY.\n") ;
     printf ("For details type: %s -warranty\n", argv [0]) ;
     printf ("\n") ;
-    piBoardId (&model, &rev, &mem, &maker, &overVolted) ;
     if (model == PI_MODEL_UNKNOWN)
     {
       printf ("Your Raspberry Pi has an unknown model type. Please report this to\n") ;
       printf ("    projects@drogon.net\n") ;
       printf ("with a copy of your /proc/cpuinfo if possible\n") ;
     }
-    else if (model == PI_MODEL_ODROIDC)
+    else if ( model == PI_MODEL_ODROIDC     ||
+              model == PI_MODEL_ODROIDXU_34 ||
+              model == PI_MODEL_ODROIDC2      )
     {
       printf ("Hardkernel ODROID Details:\n") ;
       printf ("  Type: %s, Revision: %s, Memory: %dMB, Maker: %s\n",
